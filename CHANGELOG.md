@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-22
+
 ### Added
 
-First version. Every resource and data source passed its acceptance test against
+First release. Every resource and data source passed its acceptance test against
 beta-api.livekit.cloud on 2026-11-22.
 
 - Provider configuration with a LiveKit Cloud user session: `session_token`,
