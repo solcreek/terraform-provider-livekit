@@ -1,0 +1,58 @@
+---
+page_title: "Provider: LiveKit"
+description: |-
+  Manage LiveKit Cloud projects: project settings, webhooks and API keys.
+---
+
+# LiveKit Provider
+
+An unofficial, community-maintained provider for [LiveKit Cloud](https://livekit.io/cloud), built on the
+[LiveKit Cloud API](https://beta-api.livekit.cloud/v0/openapi). It manages the configuration of LiveKit
+Cloud projects: their settings, webhooks and API keys. It supports both OpenTofu and Terraform.
+
+Use the full `registry.opentofu.org/solcreek/livekit` source address with either CLI.
+
+~> The LiveKit Cloud API is LiveKit's pre-GA `v0` API: its endpoints and fields can change without notice.
+
+## Example Usage
+
+{{ tffile "examples/provider/provider.tf" }}
+
+## Authentication
+
+The LiveKit Cloud API accepts only a **user session**: there are no service accounts or long-lived
+tokens for it yet. The provider takes the session from, in order:
+
+1. the `session_token` argument;
+2. the `LIVEKIT_SESSION_TOKEN` environment variable;
+3. the LiveKit CLI configuration (`~/.livekit/cli-config.yaml`, or `cli_config_path`), where
+   `lk cloud auth` saves a session for its default user (or `cli_user`).
+
+A session lasts about 30 days and cannot be refreshed. The provider refuses an expired session from the
+CLI configuration and warns a week before it expires. In CI, store a session token as a secret and
+replace it before it expires.
+
+A session reaches every project its user is a member of, with the user's role in each: `1` (read) for
+data sources, `2` (write) for webhooks, and `3` (admin) for project settings and API keys. Name the
+project with the provider's `project_id` (or `LIVEKIT_PROJECT_ID`), or per resource, and use a provider
+alias per project. A project the user cannot see answers `404`, like one that does not exist.
+
+The provider does not use a project's API key and secret, which only reach the LiveKit server API.
+
+## Lifecycle behavior
+
+- `livekit_project_settings` manages only the settings that the configuration sets; destroying it
+  leaves the project as it is. The API cannot clear `enabled_codecs` or `pii_redaction_categories`, so
+  those need at least one element.
+- `livekit_api_key` defaults to `deletion_protection = true`: a deleted key cannot be restored, and
+  every server and webhook that uses it stops working. Keys have no update, so a changed
+  `description` or `service_account` replaces the key, which the protection refuses. Apply `false`
+  before destroying or replacing one.
+- Existing objects are adopted with `terraform import`, never by matching a name or a URL. The API does
+  not return the secret of an existing key, so it stays empty after an import.
+- A webhook keeps the ID of its signing key after that key is deleted, and its deliveries then cannot
+  be verified. Point the webhook at another key before deleting the one it uses.
+- Secrets (`livekit_api_key.secret`) are marked sensitive but are stored in the state, like every
+  attribute. Protect the state accordingly.
+
+{{ .SchemaMarkdown | trimspace }}
