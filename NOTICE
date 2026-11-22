@@ -1,0 +1,14 @@
+Terraform / OpenTofu Provider for LiveKit Cloud
+Source: https://github.com/solcreek/terraform-provider-livekit
+Original source is licensed under Mozilla Public License 2.0.
+
+This is an independent community project. It is not affiliated with, endorsed
+by, or supported by LiveKit, Inc. "LiveKit" is a trademark of its respective
+owner and is used here only to describe what the provider works with.
+
+The provider uses the Terraform Plugin Framework (MPL-2.0) and a
+standard-library-only LiveKit Cloud API client written against LiveKit's
+published OpenAPI specification. Dependencies retain their own licenses and
+copyright notices. Release archives include dependency licenses, notices, and
+source where required under third_party/. Dependency versions are recorded in
+go.mod and go.sum at the corresponding release tag.
