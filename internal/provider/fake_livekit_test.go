@@ -57,6 +57,13 @@ type fakeLiveKit struct {
 	rateLimitNext int
 	// keyPageSize makes the key list page, to exercise the cursor.
 	keyPageSize int
+	// workspaceMembers are the members of wo_fake0001.
+	workspaceMembers []*fakeMember
+	// forSale are the phone numbers that can be bought; purchases counts buys.
+	forSale   []string
+	purchases int
+	// meID overrides the ID of the session's user.
+	meID string
 }
 
 type fakeProject struct {
@@ -69,6 +76,9 @@ type fakeProject struct {
 	EgressBackup, EgressRetry                bool
 	Webhooks                                 []*fakeWebhook
 	Keys                                     []*fakeKey
+	SIP                                      map[string]map[string]map[string]any // kind -> id -> object
+	Members                                  []*fakeMember
+	Numbers                                  []*fakeNumber
 }
 
 type fakeWebhook struct {
@@ -99,6 +109,7 @@ func newFakeLiveKit(t *testing.T) *fakeLiveKit {
 	t.Setenv("LIVEKIT_CLI_CONFIG", t.TempDir()+"/absent.yaml")
 	f := &fakeLiveKit{t: t, projects: map[string]*fakeProject{}, keyPageSize: 100}
 	f.addProject(fakeProjectID, "Acme")
+	f.initPhase2()
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -113,6 +124,8 @@ func (f *fakeLiveKit) addProject(id, name string) *fakeProject {
 		Codecs: slices.Clone(fakeCodecs), Regions: []string{}, PII: []string{},
 	}
 	p.Keys = append(p.Keys, &fakeKey{ID: f.id("API"), Owner: fakeUserID})
+	p.SIP = map[string]map[string]map[string]any{}
+	p.Members = []*fakeMember{{UserID: fakeUserID, Email: fakeUserEmail, Role: 3}}
 	f.projects[id] = p
 	return p
 }
@@ -191,6 +204,9 @@ func (f *fakeLiveKit) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if f.serveGlobal(w, r) {
+		return
+	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/v0/projects/"), "/")
 	if !strings.HasPrefix(r.URL.Path, "/v0/projects/") || parts[0] == "" {
 		notFound("not found").write(w)
@@ -272,7 +288,7 @@ func (f *fakeLiveKit) serve(w http.ResponseWriter, r *http.Request) {
 		p.Keys = slices.Delete(p.Keys, i, i+1)
 		out = map[string]any{}
 	default:
-		fail = &fakeStatus{http.StatusNotImplemented, 12, "fake: unhandled " + route}
+		out, fail = f.servePhase2(r, p, parts, body)
 	}
 	if fail != nil {
 		fail.write(w)

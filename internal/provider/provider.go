@@ -64,7 +64,7 @@ func (p *livekitProvider) Metadata(_ context.Context, _ provider.MetadataRequest
 func (p *livekitProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manage LiveKit Cloud projects through the LiveKit Cloud API: project settings, " +
-			"webhooks and API keys. Authenticates with a LiveKit Cloud user session, which reaches every " +
+			"webhooks, API keys, members, SIP trunks and dispatch rules, and phone numbers. Authenticates with a LiveKit Cloud user session, which reaches every " +
 			"project the user is a member of.",
 		Attributes: map[string]schema.Attribute{
 			"session_token": schema.StringAttribute{
@@ -177,6 +177,11 @@ func (p *livekitProvider) Resources(_ context.Context) []func() resource.Resourc
 		newProjectSettingsResource,
 		newWebhookResource,
 		newAPIKeyResource,
+		newSIPInboundTrunkResource,
+		newSIPOutboundTrunkResource,
+		newSIPDispatchRuleResource,
+		newProjectMemberResource,
+		newPhoneNumberResource,
 	}
 }
 
@@ -185,6 +190,9 @@ func (p *livekitProvider) DataSources(_ context.Context) []func() datasource.Dat
 		newProjectDataSource,
 		newWebhookEventsDataSource,
 		newAPIKeysDataSource,
+		newProjectMembersDataSource,
+		newWorkspaceMembersDataSource,
+		newAvailablePhoneNumbersDataSource,
 	}
 }
 
