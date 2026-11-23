@@ -203,9 +203,15 @@ here.
 - **Moving the provider's default project moves nothing.** A resource created
   in the provider's default `project_id` stays there when that default changes;
   only its own `project_id` argument replaces it.
-- **Retries.** At most four requests are in flight. A `429` is retried after
-  `Retry-After` or exponentially, at most five times. A read that fails on the
-  network is repeated up to twice; a write never is.
+- **Rate limit.** The API allows a session about 60 requests in any 60 seconds
+  and answers the rest with `429`, with no `Retry-After` (observed 2026-11-23).
+  The provider paces itself to 55 a minute after a burst of 50
+  (`requests_per_minute`), so a large plan takes about a second per object past
+  the first fifty. Several Terraform runs at once share the limit; a `429` is
+  retried with waits of 2 s up to 60 s, about three minutes in all.
+- **Retries.** At most four requests are in flight. A read that fails on the
+  network or with a `502`, `503` or `504` is repeated up to twice; a write never
+  is, since it may have landed.
 
 ## Development
 

@@ -40,6 +40,10 @@ alias per project. A project the user cannot see answers `404`, like one that do
 
 The provider does not use a project's API key and secret, which only reach the LiveKit server API.
 
+The API allows a session about 60 requests a minute. The provider paces itself to 55 a minute after a
+burst of 50 (`requests_per_minute`), so a large plan takes about a second per object past the first
+fifty.
+
 ## Lifecycle behavior
 
 - `livekit_project_settings` manages only the settings that the configuration sets; destroying it

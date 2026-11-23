@@ -22,8 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The provider paces its requests to the API's rate limit, about 60 a minute
+  per session: 55 a minute after a burst of 50, set by the new
+  `requests_per_minute`. A `429` is now retried for about three minutes instead
+  of 31 seconds, enough for the limit's one-minute window to pass.
 - Reads are retried after a 502, 503 or 504, like after a network error;
   writes still never are.
+
+### Fixed
+
+- Acceptance runs no longer fail on `api request limit exceeded` once a run has
+  used up the rate limit.
 
 ## [0.1.0] - 2026-11-22
 

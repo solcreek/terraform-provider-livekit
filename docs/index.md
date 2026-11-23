@@ -72,6 +72,10 @@ alias per project. A project the user cannot see answers `404`, like one that do
 
 The provider does not use a project's API key and secret, which only reach the LiveKit server API.
 
+The API allows a session about 60 requests a minute. The provider paces itself to 55 a minute after a
+burst of 50 (`requests_per_minute`), so a large plan takes about a second per object past the first
+fifty.
+
 ## Lifecycle behavior
 
 - `livekit_project_settings` manages only the settings that the configuration sets; destroying it
@@ -105,5 +109,6 @@ The provider does not use a project's API key and secret, which only reach the L
 - `cli_config_path` (String) LiveKit CLI configuration to read the session from when no token is set. Defaults to `~/.livekit/cli-config.yaml`. Falls back to `LIVEKIT_CLI_CONFIG`.
 - `cli_user` (String) ID or email of the signed-in user in the LiveKit CLI configuration whose session to use. Defaults to the CLI's default user.
 - `project_id` (String) Default project (`p_...`) for resources and data sources that do not set their own `project_id`. Falls back to `LIVEKIT_PROJECT_ID`.
+- `requests_per_minute` (Number) How many API requests the provider sends a minute, after a burst of 50. Defaults to 55: the API allows a session about 60 in any minute and refuses the rest. `0` turns pacing off.
 - `session_token` (String, Sensitive) A LiveKit Cloud user session token. Falls back to the `LIVEKIT_SESSION_TOKEN` environment variable, and then to the session that `lk cloud auth` saved in the LiveKit CLI configuration. A session lasts about 30 days.
 - `timeout_seconds` (Number) Per-request HTTP timeout in seconds. Defaults to 60.
