@@ -64,6 +64,8 @@ type fakeLiveKit struct {
 	purchases int
 	// meID overrides the ID of the session's user.
 	meID string
+	// renameFailNext answers that many phone number renames with 500.
+	renameFailNext int
 }
 
 type fakeProject struct {

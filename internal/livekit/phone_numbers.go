@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 // PhoneNumber is a phone number a project bought, or one for sale.
@@ -53,8 +54,8 @@ func (c *Client) SearchPhoneNumbers(ctx context.Context, projectID, countryCode,
 	return out.Items, nil
 }
 
-// PurchasePhoneNumber BUYS a number for the project, which costs money. The
-// response carried no ID (observed 2026-11-23): use FindPhoneNumber for it.
+// PurchasePhoneNumber BUYS a number for the project, which costs money. Its
+// response is not complete (observed 2026-11-23): use FindPhoneNumber.
 func (c *Client) PurchasePhoneNumber(ctx context.Context, projectID, e164 string) (*PhoneNumber, error) {
 	var out phoneNumberEnvelope
 	if err := c.do(ctx, http.MethodPost, phoneNumbersPath(projectID), nil, map[string]any{"phoneNumber": e164}, &out); err != nil {
@@ -72,13 +73,24 @@ func (c *Client) GetPhoneNumber(ctx context.Context, projectID, id string) (*Pho
 	return &out.PhoneNumber, nil
 }
 
-// RenamePhoneNumber changes a number's name.
-func (c *Client) RenamePhoneNumber(ctx context.Context, projectID, id, name string) (*PhoneNumber, error) {
-	var out phoneNumberEnvelope
-	if err := c.do(ctx, http.MethodPatch, phoneNumbersPath(projectID)+"/"+seg(id), nil, map[string]any{"name": name}, &out); err != nil {
-		return nil, err
+// RenamePhoneNumber changes a number's name. Its response is not complete
+// (observed 2026-11-23), so it is not returned: read the number back. A
+// rename is idempotent, so a server error is retried: one came back when a
+// number was renamed right after it was bought.
+func (c *Client) RenamePhoneNumber(ctx context.Context, projectID, id, name string) error {
+	var err error
+	for attempt := 0; attempt <= maxNetworkRetries; attempt++ {
+		if attempt > 0 {
+			if err := c.sleep(ctx, time.Duration(1<<attempt)*c.retryBase); err != nil {
+				return err
+			}
+		}
+		err = c.do(ctx, http.MethodPatch, phoneNumbersPath(projectID)+"/"+seg(id), nil, map[string]any{"name": name}, nil)
+		if StatusCode(err) < 500 {
+			return err
+		}
 	}
-	return &out.PhoneNumber, nil
+	return err
 }
 
 // ReleasePhoneNumber gives a number up. The project loses it for good.

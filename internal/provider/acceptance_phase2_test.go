@@ -284,12 +284,13 @@ resource "livekit_sip_dispatch_rule" "this" {
 	})
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testProtoV6ProviderFactories,
+		// By the number itself: id is only known once a Check has run.
 		CheckDestroy: func(*terraform.State) error {
-			n, err := client.GetPhoneNumber(ctx, projectID, id)
-			if err == nil && n.Status != livekit.PhoneNumberReleased {
-				return fmt.Errorf("number %s is %s after destroy", id, n.Status)
+			n, err := client.FindPhoneNumber(ctx, projectID, number)
+			if err == nil {
+				return fmt.Errorf("number %s (%s) is %s after destroy", number, n.ID, n.Status)
 			}
-			if err != nil && !livekit.IsNotFound(err) {
+			if !livekit.IsNotFound(err) {
 				return err
 			}
 			return nil

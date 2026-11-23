@@ -31,11 +31,12 @@ import (
 //     one already changes their role; adding to a project that is not
 //     private is a 400; removing a member who owns keys without agreeing to
 //     delete them is a 400 (FailedPrecondition) that changes nothing;
-//   - phone number search lists numbers for sale with an empty id, and so
-//     does the purchase response; the number's ID (PN_PPN_...) is in the
-//     list, which shows active numbers unless given statuses; a released
-//     number reads back with status RELEASED. Renaming and releasing were NOT
-//     observed: they follow the OpenAPI specification.
+//   - phone number search lists numbers for sale with an empty id; the
+//     responses to buying and renaming are not complete (no ID, no E.164
+//     form; observed 2026-11-23 with two real purchases), while GET and the
+//     list are; the list shows active numbers unless given statuses; a
+//     rename right after a purchase answered 500 once; a released number
+//     reads back with status RELEASED.
 
 type fakeMember struct {
 	UserID, Email string
@@ -366,7 +367,7 @@ func (f *fakeLiveKit) serveNumbers(r *http.Request, p *fakeProject, parts []stri
 		}
 		f.forSale = slices.Delete(f.forSale, i, i+1)
 		f.purchases++
-		n := &fakeNumber{ID: f.id("PN_"), E164: e, Status: "PHONE_NUMBER_STATUS_ACTIVE"}
+		n := &fakeNumber{ID: f.id("PN_PPN_"), E164: e, Status: "PHONE_NUMBER_STATUS_ACTIVE"}
 		p.Numbers = append(p.Numbers, n)
 		// The purchase response carries no ID (observed 2026-11-23).
 		out := numberJSON(n)
@@ -394,10 +395,17 @@ func (f *fakeLiveKit) serveNumbers(r *http.Request, p *fakeProject, parts []stri
 		case http.MethodGet:
 			return map[string]any{"phoneNumber": numberJSON(n)}, nil
 		case http.MethodPatch:
+			if f.renameFailNext > 0 {
+				f.renameFailNext--
+				return nil, &fakeStatus{http.StatusInternalServerError, 13, "internal error"}
+			}
 			if raw, ok := body["name"]; ok {
 				_ = json.Unmarshal(raw, &n.Name)
 			}
-			return map[string]any{"phoneNumber": numberJSON(n)}, nil
+			// Not complete (observed 2026-11-23): the E.164 form is missing.
+			out := numberJSON(n)
+			delete(out, "e164Format")
+			return map[string]any{"phoneNumber": out}, nil
 		case http.MethodDelete:
 			n.Status = "PHONE_NUMBER_STATUS_RELEASED"
 			return map[string]any{}, nil

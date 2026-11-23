@@ -132,44 +132,53 @@ func (r *phoneNumberResource) Create(ctx context.Context, req resource.CreateReq
 	}
 	projectID := plan.ProjectID.ValueString()
 	e164 := plan.PhoneNumber.ValueString()
-	n, err := r.data.client.PurchasePhoneNumber(ctx, projectID, e164)
-	if err != nil {
+	name := plan.Name.ValueString()
+	// Only the purchase's success is used: its response and the rename's
+	// are not complete (observed 2026-11-23), so the number is always read
+	// back with a GET.
+	if _, err := r.data.client.PurchasePhoneNumber(ctx, projectID, e164); err != nil {
 		resp.Diagnostics.AddError("Unable to buy phone number", err.Error())
 		return
 	}
-	name := plan.Name.ValueString()
-	// The purchase response carries no ID (observed 2026-11-23); the list
-	// has it. Until it is found, the state holds the number by its E.164
-	// form, so a later Read can find it and nothing bought is lost.
-	if n.ID == "" {
-		plan.fill(ctx, n, &resp.Diagnostics)
-		plan.ID = types.StringValue("")
-		plan.PhoneNumber = types.StringValue(e164)
-		plan.Name = types.StringValue(n.Name)
-		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-		found, err := r.data.client.FindPhoneNumber(ctx, projectID, e164)
-		if err != nil {
-			resp.Diagnostics.AddError("Bought the phone number, but cannot find it",
-				fmt.Sprintf("%s was bought, but the project's list of numbers does not show it: %v. Check the "+
-					"dashboard; a later refresh looks for it again.", e164, err))
-			return
-		}
-		n = found
+	// Bought: record it at once, by its E.164 form, so that nothing bought
+	// is lost if a later step fails; Read finds a number without an ID.
+	plan.ID = types.StringValue("")
+	for _, v := range []*types.String{&plan.CountryCode, &plan.AreaCode, &plan.NumberType, &plan.Locality, &plan.Region, &plan.Status} {
+		*v = types.StringValue("")
 	}
-	plan.fill(ctx, n, &resp.Diagnostics)
-	// Bought: record it before anything else can fail.
-	plan.Name = types.StringValue(n.Name)
+	plan.Name = types.StringValue("")
+	plan.DispatchRuleIDs = knownStringSet(ctx, nil, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-	if resp.Diagnostics.HasError() || name == n.Name {
-		return
-	}
-	n, err = r.data.client.RenamePhoneNumber(ctx, projectID, n.ID, name)
+
+	found, err := r.data.client.FindPhoneNumber(ctx, projectID, e164)
 	if err != nil {
-		resp.Diagnostics.AddError("Unable to name the new phone number", err.Error())
+		resp.Diagnostics.AddError("Bought the phone number, but cannot find it",
+			fmt.Sprintf("%s was bought, but the project's list of numbers does not show it: %v. Check the "+
+				"dashboard; a later refresh looks for it again.", e164, err))
 		return
 	}
-	plan.fill(ctx, n, &resp.Diagnostics)
+	plan.fill(ctx, found, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || name == found.Name {
+		return
+	}
+	r.rename(ctx, &plan, name, &resp.Diagnostics)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+// rename names the number and reads it back.
+func (r *phoneNumberResource) rename(ctx context.Context, m *phoneNumberModel, name string, diags *diag.Diagnostics) {
+	projectID, id := m.ProjectID.ValueString(), m.ID.ValueString()
+	if err := r.data.client.RenamePhoneNumber(ctx, projectID, id, name); err != nil {
+		diags.AddError("Unable to name the phone number", err.Error())
+		return
+	}
+	n, err := r.data.client.GetPhoneNumber(ctx, projectID, id)
+	if err != nil {
+		diags.AddError("Unable to read the phone number", err.Error())
+		return
+	}
+	m.fill(ctx, n, diags)
 }
 
 func (r *phoneNumberResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -206,12 +215,10 @@ func (r *phoneNumberResource) Update(ctx context.Context, req resource.UpdateReq
 		return
 	}
 	if !plan.Name.Equal(state.Name) {
-		n, err := r.data.client.RenamePhoneNumber(ctx, plan.ProjectID.ValueString(), plan.ID.ValueString(), plan.Name.ValueString())
-		if err != nil {
-			resp.Diagnostics.AddError("Unable to rename phone number", err.Error())
+		r.rename(ctx, &plan, plan.Name.ValueString(), &resp.Diagnostics)
+		if resp.Diagnostics.HasError() {
 			return
 		}
-		plan.fill(ctx, n, &resp.Diagnostics)
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }

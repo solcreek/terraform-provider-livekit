@@ -192,6 +192,8 @@ func TestProjectMemberWithKeys(t *testing.T) {
 
 func TestPhoneNumberLifecycle(t *testing.T) {
 	f := newFakeLiveKit(t)
+	// The first rename after the purchase fails, as one did live.
+	f.mutate(func(f *fakeLiveKit) { f.renameFailNext = 1 })
 	const name = "livekit_phone_number.main"
 	var id string
 	resource.UnitTest(t, resource.TestCase{

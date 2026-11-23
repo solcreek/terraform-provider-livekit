@@ -25,9 +25,10 @@ import (
 	"github.com/solcreek/terraform-provider-livekit/internal/livekit"
 )
 
-// trunkOrNumberIDPattern is a trunk (`ST_`) or phone number (`PN_`) ID. The
-// API accepts IDs that do not exist (observed 2026-11-22).
-var trunkOrNumberIDPattern = regexp.MustCompile(`^(ST|PN)_[A-Za-z0-9]+$`)
+// trunkOrNumberIDPattern is a trunk (`ST_`) or phone number (`PN_`) ID; a
+// number's has an underscore of its own, as in PN_PPN_T2JryP7LGeBf. The API
+// accepts IDs that do not exist (observed 2026-11-22).
+var trunkOrNumberIDPattern = regexp.MustCompile(`^(ST|PN)_[A-Za-z0-9_]+$`)
 
 type sipDispatchRuleModel struct {
 	ID              types.String `tfsdk:"id"`
