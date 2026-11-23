@@ -4,6 +4,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -130,12 +131,31 @@ func (r *phoneNumberResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 	projectID := plan.ProjectID.ValueString()
-	n, err := r.data.client.PurchasePhoneNumber(ctx, projectID, plan.PhoneNumber.ValueString())
+	e164 := plan.PhoneNumber.ValueString()
+	n, err := r.data.client.PurchasePhoneNumber(ctx, projectID, e164)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to buy phone number", err.Error())
 		return
 	}
 	name := plan.Name.ValueString()
+	// The purchase response carries no ID (observed 2026-11-23); the list
+	// has it. Until it is found, the state holds the number by its E.164
+	// form, so a later Read can find it and nothing bought is lost.
+	if n.ID == "" {
+		plan.fill(ctx, n, &resp.Diagnostics)
+		plan.ID = types.StringValue("")
+		plan.PhoneNumber = types.StringValue(e164)
+		plan.Name = types.StringValue(n.Name)
+		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+		found, err := r.data.client.FindPhoneNumber(ctx, projectID, e164)
+		if err != nil {
+			resp.Diagnostics.AddError("Bought the phone number, but cannot find it",
+				fmt.Sprintf("%s was bought, but the project's list of numbers does not show it: %v. Check the "+
+					"dashboard; a later refresh looks for it again.", e164, err))
+			return
+		}
+		n = found
+	}
 	plan.fill(ctx, n, &resp.Diagnostics)
 	// Bought: record it before anything else can fail.
 	plan.Name = types.StringValue(n.Name)
@@ -158,7 +178,14 @@ func (r *phoneNumberResource) Read(ctx context.Context, req resource.ReadRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	n, err := r.data.client.GetPhoneNumber(ctx, state.ProjectID.ValueString(), state.ID.ValueString())
+	var n *livekit.PhoneNumber
+	var err error
+	if state.ID.ValueString() == "" {
+		// Bought, but its ID was not found yet.
+		n, err = r.data.client.FindPhoneNumber(ctx, state.ProjectID.ValueString(), state.PhoneNumber.ValueString())
+	} else {
+		n, err = r.data.client.GetPhoneNumber(ctx, state.ProjectID.ValueString(), state.ID.ValueString())
+	}
 	if livekit.IsNotFound(err) || (err == nil && n.Status == livekit.PhoneNumberReleased) {
 		resp.State.RemoveResource(ctx)
 		return
@@ -196,6 +223,12 @@ func (r *phoneNumberResource) Delete(ctx context.Context, req resource.DeleteReq
 		return
 	}
 	if deletionProtected(state.DeletionProtection, "phone number", &resp.Diagnostics) {
+		return
+	}
+	if state.ID.ValueString() == "" {
+		resp.Diagnostics.AddError("Phone number ID unknown",
+			"The number's ID was never found, so it cannot be released from here. Release "+
+				state.PhoneNumber.ValueString()+" in the dashboard.")
 		return
 	}
 	err := r.data.client.ReleasePhoneNumber(ctx, state.ProjectID.ValueString(), state.ID.ValueString())

@@ -31,10 +31,11 @@ import (
 //     one already changes their role; adding to a project that is not
 //     private is a 400; removing a member who owns keys without agreeing to
 //     delete them is a 400 (FailedPrecondition) that changes nothing;
-//   - phone number search lists numbers for sale with an empty id. Buying,
-//     renaming and releasing a number were NOT observed (buying costs money):
-//     they follow the OpenAPI specification, and a released number is
-//     assumed to read back with status RELEASED.
+//   - phone number search lists numbers for sale with an empty id, and so
+//     does the purchase response; the number's ID (PN_PPN_...) is in the
+//     list, which shows active numbers unless given statuses; a released
+//     number reads back with status RELEASED. Renaming and releasing were NOT
+//     observed: they follow the OpenAPI specification.
 
 type fakeMember struct {
 	UserID, Email string
@@ -367,7 +368,22 @@ func (f *fakeLiveKit) serveNumbers(r *http.Request, p *fakeProject, parts []stri
 		f.purchases++
 		n := &fakeNumber{ID: f.id("PN_"), E164: e, Status: "PHONE_NUMBER_STATUS_ACTIVE"}
 		p.Numbers = append(p.Numbers, n)
-		return map[string]any{"phoneNumber": numberJSON(n)}, nil
+		// The purchase response carries no ID (observed 2026-11-23).
+		out := numberJSON(n)
+		out["id"] = ""
+		return map[string]any{"phoneNumber": out}, nil
+	case len(parts) == 1 && r.Method == http.MethodGet:
+		want := r.URL.Query()["statuses"]
+		if len(want) == 0 {
+			want = []string{"PHONE_NUMBER_STATUS_ACTIVE"}
+		}
+		items := []any{}
+		for _, n := range p.Numbers {
+			if slices.Contains(want, n.Status) {
+				items = append(items, numberJSON(n))
+			}
+		}
+		return map[string]any{"items": items, "pageInfo": map[string]any{"nextCursor": "", "hasMore": false}}, nil
 	case len(parts) == 2:
 		i := slices.IndexFunc(p.Numbers, func(n *fakeNumber) bool { return n.ID == parts[1] })
 		if i < 0 {

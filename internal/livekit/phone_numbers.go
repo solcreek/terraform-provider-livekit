@@ -53,7 +53,8 @@ func (c *Client) SearchPhoneNumbers(ctx context.Context, projectID, countryCode,
 	return out.Items, nil
 }
 
-// PurchasePhoneNumber BUYS a number for the project, which costs money.
+// PurchasePhoneNumber BUYS a number for the project, which costs money. The
+// response carried no ID (observed 2026-11-23): use FindPhoneNumber for it.
 func (c *Client) PurchasePhoneNumber(ctx context.Context, projectID, e164 string) (*PhoneNumber, error) {
 	var out phoneNumberEnvelope
 	if err := c.do(ctx, http.MethodPost, phoneNumbersPath(projectID), nil, map[string]any{"phoneNumber": e164}, &out); err != nil {
@@ -83,4 +84,22 @@ func (c *Client) RenamePhoneNumber(ctx context.Context, projectID, id, name stri
 // ReleasePhoneNumber gives a number up. The project loses it for good.
 func (c *Client) ReleasePhoneNumber(ctx context.Context, projectID, id string) error {
 	return c.do(ctx, http.MethodDelete, phoneNumbersPath(projectID)+"/"+seg(id), nil, nil, nil)
+}
+
+// numberStatuses are the statuses a number the project holds can have.
+var numberStatuses = []string{"PHONE_NUMBER_STATUS_ACTIVE", "PHONE_NUMBER_STATUS_PENDING", "PHONE_NUMBER_STATUS_OFFLINE"}
+
+// FindPhoneNumber finds a number the project holds by its E.164 form. A
+// number it does not hold is a 404.
+func (c *Client) FindPhoneNumber(ctx context.Context, projectID, e164 string) (*PhoneNumber, error) {
+	all, err := list[PhoneNumber](ctx, c, phoneNumbersPath(projectID), url.Values{"statuses": numberStatuses})
+	if err != nil {
+		return nil, err
+	}
+	for i := range all {
+		if all[i].E164 == e164 {
+			return &all[i], nil
+		}
+	}
+	return nil, &APIError{StatusCode: http.StatusNotFound, Code: 5, Message: "phone number not found"}
 }

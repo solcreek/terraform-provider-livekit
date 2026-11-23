@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -232,4 +233,96 @@ func TestAccSIPFacts(t *testing.T) {
 	if err != nil || len(found) == 0 || found[0].ID != "" || found[0].E164 == "" {
 		t.Errorf("search: %+v, %v", found, err)
 	}
+}
+
+// TestAccPhoneNumber BUYS a phone number, which costs money, and releases it
+// at the end. It runs only with LIVEKIT_ACC_BUY_PHONE_NUMBER=1, which CI never
+// sets.
+func TestAccPhoneNumber(t *testing.T) {
+	client, projectID := testAccPreCheck(t)
+	if os.Getenv("LIVEKIT_ACC_BUY_PHONE_NUMBER") != "1" {
+		t.Skip("buying a phone number costs money: set LIVEKIT_ACC_BUY_PHONE_NUMBER=1 to run")
+	}
+	ctx := context.Background()
+	found, err := client.SearchPhoneNumbers(ctx, projectID, "US", os.Getenv("LIVEKIT_ACC_AREA_CODE"), 1)
+	if err != nil || len(found) == 0 {
+		t.Fatalf("no number for sale: %v", err)
+	}
+	number := found[0].E164
+	suffix := randomSuffix()
+	var id string
+	config := func(name string, protect bool) string {
+		return requiredProviders + fmt.Sprintf(`
+resource "livekit_phone_number" "this" {
+  phone_number        = %q
+  name                = "tf-acc-%s-%s"
+  deletion_protection = %t
+}
+
+resource "livekit_sip_dispatch_rule" "this" {
+  name       = "tf-acc-%[2]s"
+  trunk_ids  = [livekit_phone_number.this.id]
+  individual = { room_prefix = "tf-acc-" }
+}
+`, number, suffix, name, protect)
+	}
+	// Whatever happens, release the number: found by its E.164 form, since
+	// the state may never have learnt its ID.
+	t.Cleanup(func() {
+		n, err := client.FindPhoneNumber(ctx, projectID, number)
+		if livekit.IsNotFound(err) {
+			return
+		}
+		if err != nil {
+			t.Errorf("CHECK %s BY HAND: %v", number, err)
+			return
+		}
+		t.Logf("releasing %s (%s) left behind by the test", number, n.ID)
+		if err := client.ReleasePhoneNumber(ctx, projectID, n.ID); err != nil {
+			t.Errorf("RELEASE %s (%s) BY HAND: %v", number, n.ID, err)
+		}
+	})
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProtoV6ProviderFactories,
+		CheckDestroy: func(*terraform.State) error {
+			n, err := client.GetPhoneNumber(ctx, projectID, id)
+			if err == nil && n.Status != livekit.PhoneNumberReleased {
+				return fmt.Errorf("number %s is %s after destroy", id, n.Status)
+			}
+			if err != nil && !livekit.IsNotFound(err) {
+				return err
+			}
+			return nil
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: config("a", false),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrWith("livekit_phone_number.this", "id", func(v string) error { id = v; return nil }),
+					resource.TestCheckResourceAttr("livekit_phone_number.this", "phone_number", number),
+					resource.TestCheckResourceAttr("livekit_phone_number.this", "name", "tf-acc-"+suffix+"-a"),
+				),
+			},
+			{
+				// Renamed in place; the dispatch rule now lists the number.
+				Config: config("b", false),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("livekit_phone_number.this", "name", "tf-acc-"+suffix+"-b"),
+					resource.TestCheckResourceAttrWith("livekit_phone_number.this", "id", func(v string) error {
+						if v != id {
+							return fmt.Errorf("number was replaced")
+						}
+						return nil
+					}),
+				),
+			},
+			{
+				ResourceName:            "livekit_phone_number.this",
+				ImportState:             true,
+				ImportStateIdFunc:       func(*terraform.State) (string, error) { return projectID + "/" + id, nil },
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"deletion_protection", "dispatch_rule_ids", "status"},
+			},
+		},
+	})
 }
