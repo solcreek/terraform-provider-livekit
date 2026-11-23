@@ -9,12 +9,14 @@ import (
 	"os"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/solcreek/terraform-provider-livekit/internal/livekit"
@@ -34,12 +36,13 @@ type livekitProvider struct {
 }
 
 type providerModel struct {
-	SessionToken   types.String `tfsdk:"session_token"`
-	CLIConfigPath  types.String `tfsdk:"cli_config_path"`
-	CLIUser        types.String `tfsdk:"cli_user"`
-	APIURL         types.String `tfsdk:"api_url"`
-	ProjectID      types.String `tfsdk:"project_id"`
-	TimeoutSeconds types.Int64  `tfsdk:"timeout_seconds"`
+	SessionToken      types.String `tfsdk:"session_token"`
+	CLIConfigPath     types.String `tfsdk:"cli_config_path"`
+	CLIUser           types.String `tfsdk:"cli_user"`
+	APIURL            types.String `tfsdk:"api_url"`
+	ProjectID         types.String `tfsdk:"project_id"`
+	TimeoutSeconds    types.Int64  `tfsdk:"timeout_seconds"`
+	RequestsPerMinute types.Int64  `tfsdk:"requests_per_minute"`
 }
 
 // providerData is handed to every resource and data source.
@@ -97,6 +100,13 @@ func (p *livekitProvider) Schema(_ context.Context, _ provider.SchemaRequest, re
 			"timeout_seconds": schema.Int64Attribute{
 				MarkdownDescription: "Per-request HTTP timeout in seconds. Defaults to 60.",
 				Optional:            true,
+			},
+			"requests_per_minute": schema.Int64Attribute{
+				MarkdownDescription: "How many API requests the provider sends a minute, after a burst of 50. " +
+					"Defaults to 55: the API allows a session about 60 in any minute and refuses the rest. " +
+					"`0` turns pacing off.",
+				Optional:   true,
+				Validators: []validator.Int64{int64validator.AtLeast(0)},
 			},
 		},
 	}
@@ -158,11 +168,15 @@ func (p *livekitProvider) Configure(ctx context.Context, req provider.ConfigureR
 		timeout = time.Duration(cfg.TimeoutSeconds.ValueInt64()) * time.Second
 	}
 
-	client := livekit.New(token,
+	opts := []livekit.Option{
 		livekit.WithBaseURL(firstNonEmpty(cfg.APIURL.ValueString(), os.Getenv("LIVEKIT_API_URL"), sessionAPIURL)),
 		livekit.WithTimeout(timeout),
-		livekit.WithUserAgent("terraform-provider-livekit/"+p.version),
-	)
+		livekit.WithUserAgent("terraform-provider-livekit/" + p.version),
+	}
+	if !cfg.RequestsPerMinute.IsNull() {
+		opts = append(opts, livekit.WithRateLimit(int(cfg.RequestsPerMinute.ValueInt64()), livekit.DefaultBurst))
+	}
+	client := livekit.New(token, opts...)
 
 	data := &providerData{
 		client:    client,

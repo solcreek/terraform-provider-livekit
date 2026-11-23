@@ -133,9 +133,10 @@ func (f *fakeLiveKit) addProject(id, name string) *fakeProject {
 func (f *fakeLiveKit) providerConfig() string {
 	return requiredProviders + fmt.Sprintf(`
 provider "livekit" {
-  session_token = %q
-  api_url       = %q
-  project_id    = %q
+  session_token       = %q
+  api_url             = %q
+  project_id          = %q
+  requests_per_minute = 0
 }
 `, fakeToken, f.srv.URL, fakeProjectID)
 }

@@ -17,7 +17,7 @@ func testClient(t *testing.T, h http.HandlerFunc) *Client {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	return New("tok", WithBaseURL(srv.URL+"/"), withRetryBase(time.Millisecond))
+	return New("tok", WithBaseURL(srv.URL+"/"), withRetryBase(time.Millisecond), WithRateLimit(0, 0))
 }
 
 func TestBearerAuthAndUserAgent(t *testing.T) {
@@ -187,5 +187,47 @@ func TestGatewayErrorRetry(t *testing.T) {
 	calls.Store(0)
 	if _, err := c.GenerateKey(context.Background(), "p_1", "", true); StatusCode(err) != http.StatusBadGateway || calls.Load() != 1 {
 		t.Fatalf("POST: %v after %d calls", err, calls.Load())
+	}
+}
+
+// The client paces itself after its burst.
+func TestRateLimitPacing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"project":{}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := New("tok", WithBaseURL(srv.URL), WithRateLimit(600, 2)) // 10 a second after 2
+	start := time.Now()
+	for range 5 {
+		if _, err := c.GetProject(context.Background(), "p_1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d := time.Since(start); d < 250*time.Millisecond || d > 2*time.Second {
+		t.Fatalf("5 requests took %v, want about 300ms", d)
+	}
+	if New("tok", WithRateLimit(0, 0)).limit != nil {
+		t.Fatal("pacing not off")
+	}
+}
+
+// A 429 without Retry-After is retried with growing waits until the
+// attempts run out.
+func TestRateLimitGivesUp(t *testing.T) {
+	var calls atomic.Int32
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"code":8,"message":"api request limit exceeded","details":[]}`))
+	})
+	_, err := c.GetProject(context.Background(), "p_1")
+	if StatusCode(err) != http.StatusTooManyRequests || calls.Load() != 8 {
+		t.Fatalf("%v after %d calls, want 8", err, calls.Load())
+	}
+	if w := c.retryWait(http.Header{}, 0); w != 2*time.Millisecond {
+		t.Fatalf("first wait %v", w)
+	}
+	if w := New("t").retryWait(http.Header{}, 6); w != maxRetryWait {
+		t.Fatalf("last wait %v", w)
 	}
 }

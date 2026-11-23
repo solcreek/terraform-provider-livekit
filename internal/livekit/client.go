@@ -49,6 +49,7 @@ type Client struct {
 	maxRetries int
 	retryBase  time.Duration
 	slots      chan struct{}
+	limit      *limiter
 }
 
 // Option configures a Client.
@@ -90,6 +91,12 @@ func WithUserAgent(ua string) Option {
 	}
 }
 
+// WithRateLimit paces requests to perMinute after a burst of burst
+// requests. perMinute <= 0 turns pacing off.
+func WithRateLimit(perMinute, burst int) Option {
+	return func(c *Client) { c.limit = newLimiter(perMinute, burst) }
+}
+
 // withRetryBase shortens back-offs in tests.
 func withRetryBase(d time.Duration) Option {
 	return func(c *Client) { c.retryBase = d }
@@ -105,9 +112,10 @@ func New(sessionToken string, opts ...Option) *Client {
 		baseURL:    DefaultBaseURL,
 		token:      sessionToken,
 		userAgent:  "terraform-provider-livekit",
-		maxRetries: 5,
+		maxRetries: 7,
 		retryBase:  time.Second,
 		slots:      make(chan struct{}, maxConcurrent),
+		limit:      newLimiter(DefaultRequestsPerMinute, DefaultBurst),
 	}
 	for _, o := range opts {
 		o(c)
@@ -179,6 +187,11 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 			req.Header.Set("Content-Type", "application/json")
 		}
 
+		// Every attempt counts against the API's rate limit, retries
+		// included.
+		if err := c.limit.wait(ctx); err != nil {
+			return err
+		}
 		// The slot is held only for the HTTP round trip, never while a
 		// back-off sleeps.
 		select {
@@ -248,9 +261,10 @@ func (c *Client) sleep(ctx context.Context, d time.Duration) error {
 }
 
 // retryWait is how long to back off after a 429: Retry-After when present,
-// else exponentially: 1s, 2s, 4s, 8s, 16s.
+// else exponentially, 2s, 4s, 8s, 16s, 32s, 60s, 60s: about three minutes in
+// all, so that a full 60-second window of the API's rate limit can pass.
 func (c *Client) retryWait(h http.Header, attempt int) time.Duration {
-	wait := time.Duration(1<<attempt) * c.retryBase
+	wait := time.Duration(2<<attempt) * c.retryBase
 	if secs, err := strconv.Atoi(strings.TrimSpace(h.Get("Retry-After"))); err == nil && secs >= 0 {
 		wait = time.Duration(secs) * time.Second
 	}
