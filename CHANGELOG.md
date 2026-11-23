@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `livekit_project_member`, for private projects: refuses to adopt an existing
   member, to remove the user Terraform runs as, or a member who owns API keys.
 - `livekit_phone_number`, which buys a number, with `deletion_protection` on by
-  default. Tested against the fake only: buying costs money.
+  default. Buying, naming, routing, importing and releasing passed an opt-in
+  acceptance test against the live API on 2026-11-23.
 - Data sources `livekit_project_members`, `livekit_workspace_members` and
   `livekit_available_phone_numbers`.
 

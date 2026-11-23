@@ -197,9 +197,11 @@ here.
   number and destroying it releases it for good; it defaults to
   `deletion_protection = true`, and changing `phone_number` (which would buy
   another) is refused by it too. Route a number by adding its `id` to a dispatch
-  rule's `trunk_ids`. Buying and releasing were not exercised against the live
-  API, since that costs money; they follow the API specification and are tested
-  against the fake.
+  rule's `trunk_ids`. Buying, naming, routing, importing and releasing passed an
+  acceptance test against the live API on 2026-11-23; it only runs when asked
+  (`LIVEKIT_ACC_BUY_PHONE_NUMBER=1`), never in CI. The API's responses to buying
+  and renaming are incomplete, so the provider reads the number back after
+  each.
 - **Moving the provider's default project moves nothing.** A resource created
   in the provider's default `project_id` stays there when that default changes;
   only its own `project_id` argument replaces it.
@@ -227,7 +229,8 @@ Acceptance tests (`make testacc`) call the real LiveKit Cloud API. They need
 `LIVEKIT_ACC_PROJECT_ID`, a project whose name starts with `terraform-acc` (they
 refuse any other), and a session (`lk cloud auth`, or `LIVEKIT_SESSION_TOKEN`).
 They create and delete objects marked `tf-acc-*`, put back the settings they
-change, and touch nothing else. They never buy a phone number or add a member.
+change, and touch nothing else. They never add a member, and buy (and release)
+a phone number only with `LIVEKIT_ACC_BUY_PHONE_NUMBER=1`, which costs money.
 
 ## License
 
