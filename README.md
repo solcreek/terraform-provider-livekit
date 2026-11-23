@@ -14,7 +14,8 @@
 [![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/solcreek/terraform-provider-livekit?label=release&style=for-the-badge)](https://github.com/solcreek/terraform-provider-livekit/releases/latest) [![License](https://img.shields.io/github/license/solcreek/terraform-provider-livekit.svg?style=for-the-badge)](LICENSE) [![Tests](https://img.shields.io/github/actions/workflow/status/solcreek/terraform-provider-livekit/test.yml?branch=main&style=for-the-badge)](https://github.com/solcreek/terraform-provider-livekit/actions)
 
 A provider for [LiveKit Cloud](https://livekit.io/cloud): the configuration of
-LiveKit Cloud projects, as code. Project settings, webhooks and API keys. It uses
+LiveKit Cloud projects, as code. Project settings, webhooks, API keys, members,
+SIP trunks and dispatch rules, and phone numbers. It uses
 a **dependency-free, standard-library-only** client written against the
 [LiveKit Cloud API](https://beta-api.livekit.cloud/v0/openapi), so the provider
 owns its HTTP behaviour: it caps concurrent requests, backs off when rate
@@ -99,19 +100,27 @@ tofu plan   # shows what differs from the configuration before anything is chang
 | `livekit_project_settings` | The settings of an existing project: codecs, pinned regions, auto-create, agent dispatch, observability recording and training, PII redaction, egress retries |
 | `livekit_webhook` | A URL the project sends room, participant, track, egress and ingress events to |
 | `livekit_api_key` | An API key and its secret, for servers to sign tokens and call the server API |
+| `livekit_sip_inbound_trunk` | Which calls LiveKit accepts from a SIP provider: numbers, addresses, callers, authentication |
+| `livekit_sip_outbound_trunk` | The SIP provider LiveKit places calls through, and the numbers it calls from |
+| `livekit_sip_dispatch_rule` | Which room an inbound call joins, and the agents dispatched to it |
+| `livekit_project_member` | A member of a private project and their role |
+| `livekit_phone_number` | A phone number **bought** from LiveKit (creating it costs money) |
 
 | Data source | Reads |
 |-------------|-------|
 | `livekit_project` | A project's name, server URL, workspace and data region |
 | `livekit_webhook_events` | The event names a webhook can filter on |
 | `livekit_api_keys` | A project's API keys, without secrets |
+| `livekit_project_members` | A project's members and roles |
+| `livekit_workspace_members` | A workspace's members, to find the user IDs to add to a project |
+| `livekit_available_phone_numbers` | Phone numbers for sale, by country and area code (free) |
 
 Full argument reference: [docs/](docs/index.md).
 
 Rooms, participants, egress and agent dispatches are not covered: an
 application creates them at run time. Agent deployments are build output, not
-configuration. Creating projects, members, SIP trunks and phone numbers may
-follow.
+configuration. Invites are not covered either: they send email and expire after
+48 hours.
 
 ## Authentication
 
@@ -164,6 +173,33 @@ here.
 - **Secrets live in the state.** `livekit_api_key.secret` is marked sensitive,
   which hides it from plan output only. The API returns it once, at creation, so
   it is empty after an import.
+- **SIP objects are changed in place, and keep what the provider does not
+  model.** The API replaces a trunk or rule whole, resetting every field it is
+  not sent, so the provider reads the object, overwrites the fields it manages
+  and sends the rest back: media codecs or room configuration set in the
+  dashboard survive. The fields it manages follow the configuration, unset ones
+  included.
+- **SIP passwords are write-only.** The API answers `********` for a set
+  password, so a password changed in the dashboard is not detected (a removed
+  one is). PINs of dispatch rules come back in clear. Both are sensitive and
+  stored in the state.
+- **Numbers must be E.164** (`+14155550100`): the API silently adds a missing
+  `+`, which would read back as a different value. An inbound trunk must
+  restrict something (numbers, addresses or a password); the API refuses one
+  open to anyone.
+- **Members are guarded.** `livekit_project_member` manages members of
+  *private* projects only: in any other project a role change or a removal
+  reaches the whole workspace and every project in it. It refuses to adopt an
+  existing member (the API would silently change their role; import instead),
+  to remove the user Terraform runs as, and to remove a member who owns API
+  keys, which the API would delete with them.
+- **Phone numbers cost money.** Creating a `livekit_phone_number` buys the
+  number and destroying it releases it for good; it defaults to
+  `deletion_protection = true`, and changing `phone_number` (which would buy
+  another) is refused by it too. Route a number by adding its `id` to a dispatch
+  rule's `trunk_ids`. Buying and releasing were not exercised against the live
+  API, since that costs money; they follow the API specification and are tested
+  against the fake.
 - **Moving the provider's default project moves nothing.** A resource created
   in the provider's default `project_id` stays there when that default changes;
   only its own `project_id` argument replaces it.
@@ -185,7 +221,7 @@ Acceptance tests (`make testacc`) call the real LiveKit Cloud API. They need
 `LIVEKIT_ACC_PROJECT_ID`, a project whose name starts with `terraform-acc` (they
 refuse any other), and a session (`lk cloud auth`, or `LIVEKIT_SESSION_TOKEN`).
 They create and delete objects marked `tf-acc-*`, put back the settings they
-change, and touch nothing else.
+change, and touch nothing else. They never buy a phone number or add a member.
 
 ## License
 
