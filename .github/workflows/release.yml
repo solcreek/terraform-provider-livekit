@@ -9,6 +9,9 @@ permissions:
 jobs:
   tests:
     uses: ./.github/workflows/test.yml
+    # The acceptance job needs LIVEKIT_SESSION_TOKEN; a called workflow gets
+    # no secrets unless they are passed on.
+    secrets: inherit
   release:
     needs: tests
     runs-on: ubuntu-latest
