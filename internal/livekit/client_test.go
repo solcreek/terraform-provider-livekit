@@ -171,3 +171,21 @@ func TestReplaceSIPDropsReadOnlyFields(t *testing.T) {
 	}
 }
 
+// A gateway error is repeated on a read, never on a write.
+func TestGatewayErrorRetry(t *testing.T) {
+	var calls atomic.Int32
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 || r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		_, _ = w.Write([]byte(`{"project":{"id":"p_1"}}`))
+	})
+	if _, err := c.GetProject(context.Background(), "p_1"); err != nil || calls.Load() != 2 {
+		t.Fatalf("GET: %v after %d calls", err, calls.Load())
+	}
+	calls.Store(0)
+	if _, err := c.GenerateKey(context.Background(), "p_1", "", true); StatusCode(err) != http.StatusBadGateway || calls.Load() != 1 {
+		t.Fatalf("POST: %v after %d calls", err, calls.Load())
+	}
+}

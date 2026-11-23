@@ -206,6 +206,18 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 			return fmt.Errorf("%s %s: %w", method, path, err)
 		}
 
+		// A gateway error on a read is repeated like a network error; on a
+		// write it is not, since the write may have landed behind it.
+		switch resp.StatusCode {
+		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			if method == http.MethodGet && attempt < maxNetworkRetries {
+				if err := c.sleep(ctx, time.Duration(1<<attempt)*c.retryBase); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+
 		// A 429 (ResourceExhausted) is refused before the API acts on the
 		// request, so repeating it is safe for writes too.
 		if resp.StatusCode == http.StatusTooManyRequests && attempt < c.maxRetries {
