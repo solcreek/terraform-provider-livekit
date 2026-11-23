@@ -146,3 +146,28 @@ func TestRequestBodies(t *testing.T) {
 		t.Errorf("webhook update body %s", b)
 	}
 }
+
+// A replace leaves out the read-only fields, which the API refuses when they
+// differ from the path, and does not change the caller's object.
+func TestReplaceSIPDropsReadOnlyFields(t *testing.T) {
+	var got map[string]map[string]any
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/v0/projects/p_1/sip/dispatch-rules/SDR_1" {
+			t.Errorf("%s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{"dispatchRule":{"sipDispatchRuleId":"SDR_1","name":"n"}}`))
+	})
+	in := SIPObject{"sipDispatchRuleId": json.RawMessage(`"SDR_1"`), "createdAt": json.RawMessage(`"x"`), "name": json.RawMessage(`"n"`)}
+	out, err := c.ReplaceSIP(context.Background(), SIPDispatchRule, "p_1", "SDR_1", in)
+	if err != nil || SIPDispatchRule.ID(out) != "SDR_1" {
+		t.Fatalf("%v %v", out, err)
+	}
+	if _, ok := got["replace"]["sipDispatchRuleId"]; ok || got["replace"]["name"] != "n" || len(got["replace"]) != 1 {
+		t.Errorf("replace body %v", got)
+	}
+	if _, ok := in["createdAt"]; !ok {
+		t.Error("the caller's object was changed")
+	}
+}
+

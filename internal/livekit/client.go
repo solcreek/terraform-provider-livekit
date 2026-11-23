@@ -315,3 +315,5 @@ func list[T any](ctx context.Context, c *Client, path string, query url.Values) 
 	}
 	return nil, fmt.Errorf("GET %s: more than 1000 pages", path)
 }
+
+func itoa(n int) string { return strconv.Itoa(n) }
